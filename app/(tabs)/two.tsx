@@ -1,177 +1,291 @@
-// two.tsx (ExpenseHistoryScreen)
-import React, { useState, useEffect } from 'react';
-import { View, Text, Button, FlatList, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  TextInput,
+  StyleSheet,
+  Animated,
+  RefreshControl,
+} from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useColorScheme } from '@/components/useColorScheme';
-import Colors from '@/constants/Colors';
+import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
+import { Ionicons } from '@expo/vector-icons';
+import { Picker } from '@react-native-picker/picker';
+
+interface Expense {
+  id: string;
+  amount: number;
+  tag: string;
+  description: string;
+  timestamp: string;
+}
 
 export default function ExpenseHistoryScreen() {
-  const [expenses, setExpenses] = useState<any[]>([]);
-  const [filter, setFilter] = useState('overall');
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [filteredExpenses, setFilteredExpenses] = useState<Expense[]>([]);
+  const [deletedExpense, setDeletedExpense] = useState<Expense | null>(null);
+  const [undoVisible, setUndoVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const colorScheme = useColorScheme();
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
+  const [categoryFilter, setCategoryFilter] = useState('All');
+  const [sortOrder, setSortOrder] = useState('Newest');
+  const [refreshing, setRefreshing] = useState(false);
+  const undoTimeout = useRef<NodeJS.Timeout | null>(null);
 
-  // Load expenses from AsyncStorage
   useEffect(() => {
-    const loadExpenses = async () => {
-      try {
-        const storedExpenses = await AsyncStorage.getItem('expenses');
-        if (storedExpenses) {
-          setExpenses(JSON.parse(storedExpenses));
-        }
-      } catch (error) {
-        console.error("Error loading expenses:", error);
-      }
-    };
-
     loadExpenses();
   }, []);
 
-  // Calculate total expenses
-  const calculateTotalExpenses = (timePeriod: string): number => {
-    const now = new Date();
-    const today = now.toLocaleDateString();
-    const currentWeekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - now.getDay());
-    const currentMonth = now.getMonth() + 1;
+  useEffect(() => {
+    applyFilters();
+  }, [expenses, searchQuery, categoryFilter, sortOrder]);
 
-    let total = 0;
-    if (timePeriod === "day") {
-      total = expenses.filter(expense => new Date(expense.timestamp).toLocaleDateString() === today).reduce((sum, expense) => sum + expense.amount, 0);
-    } else if (timePeriod === "week") {
-      total = expenses.filter(expense => new Date(expense.timestamp) >= currentWeekStart).reduce((sum, expense) => sum + expense.amount, 0);
-    } else if (timePeriod === "month") {
-      total = expenses.filter(expense => new Date(expense.timestamp).getMonth() + 1 === currentMonth).reduce((sum, expense) => sum + expense.amount, 0);
-    } else if (timePeriod === "overall") {
-      total = expenses.reduce((sum, expense) => sum + expense.amount, 0);
-    }
-    return total;
-  };
-
-  // Filter expenses based on search query
-  const filteredExpenses = expenses.filter(expense => {
-    const lowerCaseQuery = searchQuery.toLowerCase();
-    const lowerCaseTag = expense.tag ? expense.tag.toLowerCase() : "";
-    const lowerCaseAmount = expense.amount ? expense.amount.toString().toLowerCase() : "";
-    const lowerCaseDescription = expense.description ? expense.description.toLowerCase() : "";
-
-    return (
-      lowerCaseTag.includes(lowerCaseQuery) ||
-      lowerCaseAmount.includes(lowerCaseQuery) ||
-      lowerCaseDescription.includes(lowerCaseQuery)
-    );
-  });
-
-  // Sort expenses by timestamp
-  const sortedExpenses = [...filteredExpenses].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-  // Toggle expand/collapse of expense description
-  const toggleExpand = (id: string) => {
-    const newExpandedItems = new Set(expandedItems);
-    if (newExpandedItems.has(id)) {
-      newExpandedItems.delete(id);
-    } else {
-      newExpandedItems.add(id);
-    }
-    setExpandedItems(newExpandedItems);
-  };
-
-  // Function to refresh the expense list
-  const refreshExpenses = async () => {
+  const loadExpenses = async () => {
     try {
       const storedExpenses = await AsyncStorage.getItem('expenses');
       if (storedExpenses) {
-        setExpenses(JSON.parse(storedExpenses));
+        const parsedExpenses: Expense[] = JSON.parse(storedExpenses);
+        setExpenses(parsedExpenses.reverse());
       }
     } catch (error) {
-      console.error("Error refreshing expenses:", error);
+      console.error("Error loading expenses:", error);
     }
   };
 
-  return (
-    <View style={[styles.container, { backgroundColor: Colors[colorScheme ?? 'light'].background }]}>
-      <TextInput
-        style={[styles.searchBar, { borderColor: Colors[colorScheme ?? 'light'].text }]}
-        placeholder="Search by tag, amount, or description"
-        placeholderTextColor={Colors[colorScheme ?? 'light'].text}
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-      />
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadExpenses();
+    setRefreshing(false);
+  };
 
-      <View style={styles.filterButtons}>
-        <Button title="Day" onPress={() => setFilter('day')} color={Colors[colorScheme ?? 'light'].tint} />
-        <Button title="Week" onPress={() => setFilter('week')} color={Colors[colorScheme ?? 'light'].tint} />
-        <Button title="Month" onPress={() => setFilter('month')} color={Colors[colorScheme ?? 'light'].tint} />
-        <Button title="Overall" onPress={() => setFilter('overall')} color={Colors[colorScheme ?? 'light'].tint} />
-      </View>
+  const applyFilters = () => {
+    let updatedExpenses = [...expenses];
 
-      <Text style={[styles.total, { color: Colors[colorScheme ?? 'light'].text }]}>
-        Total ({filter}): {calculateTotalExpenses(filter)}
-      </Text>
+    if (searchQuery) {
+      updatedExpenses = updatedExpenses.filter(expense =>
+        expense.description.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+    }
 
-      <FlatList
-        data={sortedExpenses}
-        keyExtractor={(item, index) => index.toString()}
-        renderItem={({ item }) => (
-          <TouchableOpacity onPress={() => toggleExpand(item.timestamp)}>
-            <View style={styles.expenseItem}>
-              <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>
-                {item.tag}: ${item.amount ? item.amount.toFixed(2) : '0.00'}
-              </Text>
-              <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>{new Date(item.timestamp).toLocaleString()}</Text>
-            </View>
-            {expandedItems.has(item.timestamp) && (
-              <View style={styles.descriptionContainer}>
-                <Text style={{ color: Colors[colorScheme ?? 'light'].text }}>Description: {item.description}</Text>
-              </View>
-            )}
+    if (categoryFilter !== 'All') {
+      updatedExpenses = updatedExpenses.filter(expense => expense.tag === categoryFilter);
+    }
+
+    if (sortOrder === 'Newest') {
+      updatedExpenses.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    } else {
+      updatedExpenses.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    }
+
+    setFilteredExpenses(updatedExpenses);
+  };
+
+  const deleteExpense = async (id: string) => {
+    const updatedExpenses = expenses.filter(expense => expense.id !== id);
+    const removedExpense = expenses.find(expense => expense.id === id) || null;
+    if (!removedExpense) return;
+  
+    try {
+      await AsyncStorage.setItem('expenses', JSON.stringify(updatedExpenses));
+      setExpenses(updatedExpenses);
+      setFilteredExpenses(updatedExpenses); // Ensure filtered list updates too
+      setDeletedExpense(removedExpense);
+      setUndoVisible(true);
+  
+      if (undoTimeout.current) clearTimeout(undoTimeout.current);
+      undoTimeout.current = setTimeout(() => setUndoVisible(false), 10000);
+    } catch (error) {
+      console.error("Error deleting expense:", error);
+    }
+  };
+  
+  const undoDelete = async () => {
+    if (!deletedExpense) return;
+  
+    // Re-insert the deleted expense at the correct position
+    const updatedExpenses = [...expenses, deletedExpense];
+  
+    try {
+      await AsyncStorage.setItem('expenses', JSON.stringify(updatedExpenses));
+      setExpenses(updatedExpenses);
+      setFilteredExpenses(updatedExpenses); // Ensure filtered list updates too
+      setDeletedExpense(null);
+      setUndoVisible(false);
+    } catch (error) {
+      console.error("Error restoring expense:", error);
+    }
+  };  
+
+  const renderExpense = ({ item }: { item: Expense }) => {
+    const renderRightActions = (progress: Animated.AnimatedInterpolation<number>) => {
+      const opacity = progress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [0, 1],
+      });
+
+      return (
+        <Animated.View style={[styles.deleteContainer, { opacity }]}>
+          <TouchableOpacity style={styles.deleteButton} onPress={() => deleteExpense(item.id)}>
+            <Ionicons name="trash" size={24} color="white" />
           </TouchableOpacity>
-        )}
-      />
-      <View style={styles.refreshButtonContainer}> 
-        <Button title="Refresh" onPress={refreshExpenses} color={Colors[colorScheme ?? 'light'].tint} />
+        </Animated.View>
+      );
+    };
+
+    return (
+      <Swipeable renderRightActions={renderRightActions}>
+        <View style={styles.card}>
+          <Text style={styles.tag}>{item.tag}</Text>
+          <Text style={styles.amount}>${item.amount.toFixed(2)}</Text>
+          <Text style={styles.description}>{item.description}</Text>
+          <Text style={styles.timestamp}>{new Date(item.timestamp).toLocaleDateString()}</Text>
+        </View>
+      </Swipeable>
+    );
+  };
+
+  return (
+    <GestureHandlerRootView style={styles.container}>
+      {/* Search Bar */}
+      <View style={styles.searchBar}>
+        <TextInput
+          placeholder="Search expenses..."
+          style={styles.searchInput}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        <Ionicons name="search" size={20} color="#555" style={styles.searchIcon} />
       </View>
-    </View>
+
+      {/* Filter Bar */}
+      <View style={styles.filterBar}>
+        <Picker selectedValue={categoryFilter} onValueChange={setCategoryFilter} style={styles.picker}>
+          <Picker.Item label="All Categories" value="All" />
+          <Picker.Item label="Food" value="Food" />
+          <Picker.Item label="Commute" value="Commute" />
+          <Picker.Item label="Shopping" value="Shopping" />
+          <Picker.Item label="Entertainment" value="Entertainment" />
+        </Picker>
+        <Picker selectedValue={sortOrder} onValueChange={setSortOrder} style={styles.picker}>
+          <Picker.Item label="Newest" value="Newest" />
+          <Picker.Item label="Oldest" value="Oldest" />
+        </Picker>
+      </View>
+
+      {/* Expense List */}
+      <FlatList
+        data={filteredExpenses}
+        renderItem={renderExpense}
+        contentContainerStyle={styles.list}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      />
+
+      {/* Undo Snackbar */}
+      {undoVisible && (
+        <View style={styles.undoContainer}>
+          <Text style={styles.undoText}>Expense deleted.</Text>
+          <TouchableOpacity onPress={undoDelete}>
+            <Text style={styles.undoButton}>Undo</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20,
-  },
-  filterButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 10,
-  },
-  expenseItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 5,
-    padding: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+  container: { 
+    flex: 1, 
+    backgroundColor: '#f5f5f5', 
+    padding: 10 
   },
   searchBar: {
-    height: 40,
-    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 10,
-    paddingHorizontal: 10,
+    backgroundColor: 'white',
     borderRadius: 10,
-  },
-  descriptionContainer: {
     padding: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
   },
-  total: {
-    fontSize: 20,
-    margin: 10,
+  searchInput: { 
+    flex: 1 
   },
-  refreshButtonContainer: { 
-    marginTop: 20, 
+  searchIcon: { 
+    marginLeft: 10 
+  },
+  filterBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  picker: { 
+    flex: 1 
+  },
+  list: { 
+    paddingBottom: 80 
+  },
+  deleteContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+    backgroundColor: 'red',
     borderRadius: 10,
-    overflow: 'hidden', 
+    marginBottom: 10,
+  },
+  deleteButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 80,
+    height: '100%',
+  },
+  card: {
+    backgroundColor: 'white',
+    padding: 15,
+    marginBottom: 10,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  tag: { 
+    fontSize: 14, 
+    fontWeight: 'bold', 
+    color: '#007BFF' 
+  },
+  amount: { 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    marginVertical: 5 
+  },
+  description: { 
+    fontSize: 14, 
+    color: '#555' 
+  },
+  timestamp: { 
+    fontSize: 12, 
+    color: '#999', 
+    marginTop: 5 
+  },
+  undoContainer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: '#333',
+    padding: 15,
+    borderRadius: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  undoText: { 
+    color: 'white' 
+  },
+  undoButton: { 
+    textDecorationLine: 'underline', 
+    color: 'white' 
   },
 });

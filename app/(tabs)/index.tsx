@@ -14,22 +14,31 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import { Ionicons } from '@expo/vector-icons';
 
+// Define the Expense interface
+interface Expense {
+  id: string;
+  amount: number;
+  tag: string;
+  description: string;
+  timestamp: string;
+}
+
 export default function ExpenseInputScreen() {
-  const [amount, setAmount] = useState('');
-  const [description, setDescription] = useState('');
-  const [tag, setTag] = useState('');
-  const [date, setDate] = useState(new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
-  const [recentExpenses, setRecentExpenses] = useState<{ amount: number; tag: string; description: string }[]>([]);
-  const availableTags = ['Food', 'Commute', 'Shopping', 'Entertainment'];
+  const [amount, setAmount] = useState<string>('');
+  const [description, setDescription] = useState<string>('');
+  const [tag, setTag] = useState<string>('');
+  const [date, setDate] = useState<Date>(new Date());
+  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+  const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
+  const availableTags: string[] = ['Food', 'Commute', 'Shopping', 'Entertainment'];
 
   useEffect(() => {
     const loadRecentExpenses = async () => {
       try {
         const storedExpenses = await AsyncStorage.getItem('expenses');
         if (storedExpenses) {
-          const parsedExpenses = JSON.parse(storedExpenses);
-          setRecentExpenses(parsedExpenses.slice(-3));
+          const parsedExpenses: Expense[] = JSON.parse(storedExpenses);
+          setRecentExpenses(parsedExpenses.slice(0, 3));
         }
       } catch (error) {
         console.error("Error loading expenses:", error);
@@ -44,7 +53,8 @@ export default function ExpenseInputScreen() {
       return;
     }
 
-    const newExpense = {
+    const newExpense: Expense = {
+      id: Date.now().toString(),
       amount: parseFloat(amount),
       tag,
       description,
@@ -53,10 +63,10 @@ export default function ExpenseInputScreen() {
 
     try {
       const existingExpenses = await AsyncStorage.getItem('expenses');
-      const expenses = existingExpenses ? JSON.parse(existingExpenses) : [];
-      expenses.push(newExpense);
-      await AsyncStorage.setItem('expenses', JSON.stringify(expenses));
-      setRecentExpenses(expenses.slice(-3));
+      const expenses: Expense[] = existingExpenses ? JSON.parse(existingExpenses) : [];
+      const updatedExpenses: Expense[] = [newExpense, ...expenses];
+      await AsyncStorage.setItem('expenses', JSON.stringify(updatedExpenses));
+      setRecentExpenses(updatedExpenses.slice(0, 3));
       setAmount('');
       setDescription('');
       setTag('');
@@ -73,8 +83,10 @@ export default function ExpenseInputScreen() {
       <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps='handled'>
         <View style={styles.recentExpensesContainer}>
           <Text style={styles.recentTitle}>Recent Expenses</Text>
-          {recentExpenses.map((expense, index) => (
-            <Text key={index} style={styles.recentItem}>{expense.tag}: ${expense.amount} - {expense.description}</Text>
+          {recentExpenses.map((expense) => (
+            <Text key={expense.id} style={styles.recentItem}>
+              {expense.tag}: ${expense.amount.toFixed(2)} - {expense.description}
+            </Text>
           ))}
         </View>
         <View style={styles.inputContainer}>
@@ -95,8 +107,9 @@ export default function ExpenseInputScreen() {
           />
           <View style={styles.input}>
             <Picker selectedValue={tag} onValueChange={(itemValue) => setTag(itemValue)}>
-              {availableTags.map((tagItem, index) => (
-                <Picker.Item label={tagItem} value={tagItem} key={index} />
+              <Picker.Item label="Select Category" value="" />
+              {availableTags.map((tagItem) => (
+                <Picker.Item label={tagItem} value={tagItem} key={tagItem} />
               ))}
             </Picker>
           </View>
@@ -113,7 +126,7 @@ export default function ExpenseInputScreen() {
               display="default"
               onChange={(_, selectedDate) => {
                 setShowDatePicker(false);
-                setDate(selectedDate || date);
+                if (selectedDate) setDate(selectedDate);
               }}
             />
           )}
@@ -184,3 +197,4 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
+

@@ -13,6 +13,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GestureHandlerRootView, Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import { useNavigation } from '@react-navigation/native';
+import { NavigationProps, RootStackParamList } from '../types';
 
 interface Expense {
   id: string;
@@ -32,6 +34,8 @@ export default function ExpenseHistoryScreen() {
   const [sortOrder, setSortOrder] = useState('Newest');
   const [refreshing, setRefreshing] = useState(false);
   const undoTimeout = useRef<NodeJS.Timeout | null>(null);
+
+  const navigation = useNavigation<NavigationProps>();
 
   useEffect(() => {
     loadExpenses();
@@ -118,15 +122,17 @@ export default function ExpenseHistoryScreen() {
   };  
 
   const renderExpense = ({ item }: { item: Expense }) => {
-    const renderRightActions = (progress: Animated.AnimatedInterpolation<number>) => {
-      const opacity = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 1],
-      });
-
+    const renderRightActions = (progress: Animated.AnimatedInterpolation<number>, item: Expense) => {
       return (
-        <Animated.View style={[styles.deleteContainer, { opacity }]}>
-          <TouchableOpacity style={styles.deleteButton} onPress={() => deleteExpense(item.id)}>
+        <Animated.View style={styles.actionContainer}>
+          <TouchableOpacity
+            style={[styles.actionButton, { backgroundColor: '#007BFF' }]}
+            onPress={() => navigation.navigate('index', { expense: item })}
+          >
+            <Ionicons name="pencil" size={24} color="white" />
+          </TouchableOpacity>
+    
+          <TouchableOpacity style={[styles.actionButton, { backgroundColor: 'red' }]} onPress={() => deleteExpense(item.id)}>
             <Ionicons name="trash" size={24} color="white" />
           </TouchableOpacity>
         </Animated.View>
@@ -134,7 +140,7 @@ export default function ExpenseHistoryScreen() {
     };
 
     return (
-      <Swipeable renderRightActions={renderRightActions}>
+      <Swipeable renderRightActions={(progress) => renderRightActions(progress, item)}>
         <View style={styles.card}>
           <Text style={styles.tag}>{item.tag}</Text>
           <Text style={styles.amount}>${item.amount.toFixed(2)}</Text>
@@ -287,5 +293,19 @@ const styles = StyleSheet.create({
   undoButton: { 
     textDecorationLine: 'underline', 
     color: 'white' 
+  },
+  actionContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 10,
+    marginBottom: 10,
+  },
+  actionButton: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 50,
+    height: '100%',
+    borderRadius: 10,
+    marginHorizontal: 5,
   },
 });

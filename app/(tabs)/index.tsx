@@ -3,18 +3,21 @@ import {
   View,
   Text,
   TextInput,
-  TouchableOpacity,
-  Platform,
+  Button,
   StyleSheet,
   KeyboardAvoidingView,
-  ScrollView,
+  Platform,
+  TouchableWithoutFeedback,
+  Keyboard,
+  FlatList
 } from 'react-native';
+import { TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { Picker } from '@react-native-picker/picker';
-import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { NavigationProps, RootStackParamList } from '../types';
 
-// Define the Expense interface
 interface Expense {
   id: string;
   amount: number;
@@ -23,178 +26,231 @@ interface Expense {
   timestamp: string;
 }
 
-export default function ExpenseInputScreen() {
-  const [amount, setAmount] = useState<string>('');
-  const [description, setDescription] = useState<string>('');
-  const [tag, setTag] = useState<string>('');
-  const [date, setDate] = useState<Date>(new Date());
-  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
-  const [recentExpenses, setRecentExpenses] = useState<Expense[]>([]);
-  const availableTags: string[] = ['Food', 'Commute', 'Shopping', 'Entertainment'];
+export default function index() {
+  const navigation = useNavigation<NavigationProps>();
+  const route = useRoute();
+  const params = route.params as { expense?: Expense } | undefined;
+  const editingExpense: Expense | null = params?.expense || null;
+
+  const [amount, setAmount] = useState('');
+  const [tag, setTag] = useState('Food');
+  const [description, setDescription] = useState('');
+  const [date, setDate] = useState(new Date());
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
 
   useEffect(() => {
-    const loadRecentExpenses = async () => {
-      try {
-        const storedExpenses = await AsyncStorage.getItem('expenses');
-        if (storedExpenses) {
-          const parsedExpenses: Expense[] = JSON.parse(storedExpenses);
-          setRecentExpenses(parsedExpenses.slice(0, 3));
-        }
-      } catch (error) {
-        console.error("Error loading expenses:", error);
+    loadExpenses();
+    if (editingExpense) {
+      setAmount(editingExpense.amount.toString());
+      setTag(editingExpense.tag);
+      setDescription(editingExpense.description);
+      setDate(new Date(editingExpense.timestamp));
+      setIsEditing(true);
+    }
+  }, [editingExpense]);
+
+  const loadExpenses = async () => {
+    try {
+      const storedExpenses = await AsyncStorage.getItem('expenses');
+      if (storedExpenses) {
+        setExpenses(JSON.parse(storedExpenses));
       }
-    };
-    loadRecentExpenses();
-  }, []);
+    } catch (error) {
+      console.error("Error loading expenses:", error);
+    }
+  };
 
   const saveExpense = async () => {
-    if (!amount || !tag || !description) {
-      alert("Please fill out all fields.");
-      return;
-    }
+    if (!amount || !description) return;
 
     const newExpense: Expense = {
-      id: Date.now().toString(),
+      id: isEditing ? editingExpense!.id : new Date().getTime().toString(),
       amount: parseFloat(amount),
       tag,
       description,
       timestamp: date.toISOString(),
     };
 
+    let updatedExpenses = isEditing
+      ? expenses.map(exp => (exp.id === editingExpense!.id ? newExpense : exp))
+      : [newExpense, ...expenses];
+
     try {
-      const existingExpenses = await AsyncStorage.getItem('expenses');
-      const expenses: Expense[] = existingExpenses ? JSON.parse(existingExpenses) : [];
-      const updatedExpenses: Expense[] = [newExpense, ...expenses];
       await AsyncStorage.setItem('expenses', JSON.stringify(updatedExpenses));
-      setRecentExpenses(updatedExpenses.slice(0, 3));
-      setAmount('');
-      setDescription('');
-      setTag('');
-      setDate(new Date());
-      alert("Expense saved!");
+      setExpenses(updatedExpenses);
+      resetForm();
+      navigation.navigate('ExpenseHistoryScreen');
     } catch (error) {
       console.error("Error saving expense:", error);
-      alert("Error saving expense. Please try again.");
     }
   };
 
+  const resetForm = () => {
+    setAmount('');
+    setTag('Food');
+    setDescription('');
+    setDate(new Date());
+    setIsEditing(false);
+  };
+
   return (
-    <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps='handled'>
-        <View style={styles.recentExpensesContainer}>
-          <Text style={styles.recentTitle}>Recent Expenses</Text>
-          {recentExpenses.map((expense) => (
-            <Text key={expense.id} style={styles.recentItem}>
-              {expense.tag}: ${expense.amount.toFixed(2)} - {expense.description}
-            </Text>
-          ))}
+    <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"} 
+        style={styles.container}
+      >
+        {/* Mini History Card */}
+        <View style={styles.historyContainer}>
+          <Text style={styles.historyTitle}>Recent Expenses</Text>
+          <FlatList
+            data={expenses.slice(0, 3)} // Show only the last 3 expenses
+            keyExtractor={item => item.id}
+            renderItem={({ item }) => (
+              <View style={styles.historyItem}>
+                <Text style={styles.historyTag}>{item.tag}</Text>
+                <Text style={styles.historyAmount}>${item.amount.toFixed(2)}</Text>
+              </View>
+            )}
+          />
         </View>
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="Amount"
-            keyboardType="numeric"
-            value={amount}
-            onChangeText={setAmount}
+
+        {/* Expense Input Form */}
+        <View style={styles.formContainer}>
+          <TextInput 
+            style={styles.input} 
+            placeholder="Amount" 
+            keyboardType="numeric" 
+            value={amount} 
+            onChangeText={setAmount} 
           />
-          <TextInput
-            style={styles.input}
-            placeholder="Description"
-            value={description}
-            multiline
-            numberOfLines={3}
-            onChangeText={setDescription}
+          <TextInput 
+            style={styles.input} 
+            placeholder="Description" 
+            value={description} 
+            onChangeText={setDescription} 
           />
-          <View style={styles.input}>
-            <Picker selectedValue={tag} onValueChange={(itemValue) => setTag(itemValue)}>
-              <Picker.Item label="Select Category" value="" />
-              {availableTags.map((tagItem) => (
-                <Picker.Item label={tagItem} value={tagItem} key={tagItem} />
-              ))}
-            </Picker>
+          
+          <Text style={styles.label}>Category</Text>
+          <TextInput 
+            style={styles.input} 
+            value={tag} 
+            onChangeText={setTag} 
+          />
+
+          <Text style={styles.label}>Date</Text>
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.inputDate}
+              value={date.toLocaleDateString()}
+              editable={false} // Prevent manual input
+            />
+            <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.iconButton}>
+              <Ionicons name="calendar" size={24} color="#555" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.datePickerContainer} onPress={() => setShowDatePicker(true)}>
-            <Text style={styles.dateText}>{date.toLocaleDateString()}</Text>
-            <Ionicons name="calendar" size={20} color="black" style={styles.dateIcon} />
-          </TouchableOpacity>
+
           {showDatePicker && (
             <DateTimePicker
-              testID="dateTimePicker"
               value={date}
               mode="date"
-              is24Hour={true}
               display="default"
-              onChange={(_, selectedDate) => {
+              onChange={(event, selectedDate) => {
                 setShowDatePicker(false);
                 if (selectedDate) setDate(selectedDate);
               }}
             />
           )}
+
+          {/* Save Button with Edit Mode Indicator */}
+          <Button
+            title={isEditing ? "Update Expense" : "Save Expense"}
+            color={isEditing ? "orange" : "blue"}
+            onPress={saveExpense}
+          />
         </View>
-        <TouchableOpacity style={styles.saveButton} onPress={saveExpense}>
-          <Text style={styles.saveButtonText}>Save Expense</Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </TouchableWithoutFeedback>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { 
+    flex: 1, 
+    padding: 20, 
+    backgroundColor: '#f5f5f5' 
+  },
+  historyContainer: {
+    backgroundColor: '#fff',
+    padding: 15,
+    borderRadius: 10,
+    marginBottom: 15,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
+    elevation: 3,
+  },
+  historyTitle: { 
+    fontSize: 16, 
+    fontWeight: 'bold', 
+    marginBottom: 5 
+  },
+  historyItem: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    paddingVertical: 5 
+  },
+  historyTag: { 
+    fontSize: 14, 
+    fontWeight: 'bold' 
+  },
+  historyAmount: { 
+    fontSize: 14, 
+    color: '#555' 
+  },
+  formContainer: {
+    backgroundColor: '#fff',
     padding: 20,
-    justifyContent: 'flex-end',
-  },
-  scrollContainer: {
-    flexGrow: 1,
-    justifyContent: 'flex-end',
-  },
-  inputContainer: {
-    marginBottom: 20,
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 2 },
+    shadowRadius: 5,
+    elevation: 3,
+    marginTop: 'auto' // Moves form to the bottom
   },
   input: {
-    height: 50,
+    backgroundColor: '#fff',
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
     borderWidth: 1,
-    marginBottom: 20,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    borderColor: '#ddd',
   },
-  recentExpensesContainer: {
-    marginBottom: 20,
+  label: { 
+    fontSize: 14, 
+    fontWeight: 'bold', 
+    marginBottom: 5 
   },
-  recentTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  recentItem: {
-    fontSize: 16,
-  },
-  datePickerContainer: {
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    borderRadius: 5,
     borderWidth: 1,
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 20,
+    borderColor: '#ddd',
+    paddingHorizontal: 10,
+    marginBottom: 10,
   },
-  dateText: {
+  inputDate: {
+    flex: 1,
+    padding: 10,
     fontSize: 16,
+    color: '#333',
   },
-  dateIcon: {
-    marginLeft: 10,
-  },
-  saveButton: {
-    backgroundColor: '#007BFF',
-    padding: 15,
-    borderRadius: 10,
-    alignItems: 'center',
-  },
-  saveButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
+  iconButton: {
+    padding: 8,
+  },  
 });
-

@@ -29,7 +29,7 @@ export default function TabLayout() {
       />
 
       <Tabs.Screen
-        name="two"
+        name="ExpenseHistoryScreen"
         options={{
           title: "Expense History",
           tabBarIcon: ({ color }) => <TabBarIcon name="list" color={color} />,
